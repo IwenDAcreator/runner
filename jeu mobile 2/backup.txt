@@ -1,0 +1,171 @@
+const GAME_WIDTH = 360;
+const GAME_HEIGHT = 640;
+const GROUND_Y = GAME_HEIGHT - 50;
+
+let player;
+let obstacles;
+let score = 0;
+let bestScore = 0;
+let scoreText;
+let bestText;
+let gameOver = false;
+let spawnTimer;
+let bg; // background défilant
+
+// --- vitesse du jeu
+let baseSpeed = 220;        // vitesse initiale des obstacles
+let bgSpeed = 3;            // vitesse initiale du background
+let scoreTimer = 0;         // pour incrémenter score toutes les 2 secondes
+
+const config = {
+  type: Phaser.AUTO,
+  width: GAME_WIDTH,
+  height: GAME_HEIGHT,
+  parent: 'game',
+  backgroundColor: '#aaaaaa',
+  physics: {
+    default: 'arcade',
+    arcade: {
+      gravity: { y: 1200 },
+      debug: false
+    }
+  },
+  scene: { preload, create, update }
+};
+
+new Phaser.Game(config);
+
+function preload() {
+  this.load.image('player', 'assets/player.png');
+  this.load.image('obstacle', 'assets/obstacle.png');
+  this.load.image('background', 'assets/background.png');
+}
+
+function create() {
+  // --- BACKGROUND qui défile
+  bg = this.add.tileSprite(
+    GAME_WIDTH / 2,
+    GAME_HEIGHT / 2,
+    GAME_WIDTH,
+    GAME_HEIGHT,
+    'background'
+  );
+
+  // --- SOL invisible
+  const ground = this.physics.add.staticSprite(GAME_WIDTH / 2, GROUND_Y, null);
+  ground.setDisplaySize(GAME_WIDTH, 10).refreshBody();
+  ground.setVisible(false);
+
+  // --- JOUEUR
+  player = this.physics.add.sprite(80, -200, 'player'); // commence au-dessus
+  player.setOrigin(0.5, 1);
+  player.setScale(0.15);
+  player.body.setSize(player.width, player.height);
+  player.body.setOffset(0, 0);
+  player.setCollideWorldBounds(true);
+  player.setBounce(0.2);
+  this.physics.add.collider(player, ground);
+
+  // --- Force initiale pour tomber du ciel
+  player.body.allowGravity = true;
+  player.setVelocityY(300);
+
+  // --- OBSTACLES
+  obstacles = this.physics.add.group();
+  this.physics.add.collider(obstacles, ground);
+  this.physics.add.overlap(player, obstacles, hit, null, this);
+
+  // --- SCORE et meilleur score
+  scoreText = this.add.text(10, 10, 'Score: 0', {
+    fontFamily: 'Arial',
+    fontSize: '28px',
+    fontStyle: 'bold',
+    fill: '#000'
+  });
+  bestText = this.add.text(GAME_WIDTH - 10, 10, 'Best: ' + bestScore, {
+    fontFamily: 'Arial',
+    fontSize: '28px',
+    fontStyle: 'bold',
+    fill: '#000'
+  }).setOrigin(1, 0);
+
+  // --- SPAWN OBSTACLES
+  spawnTimer = this.time.addEvent({
+    delay: 1400,
+    loop: true,
+    callback: spawnObstacle,
+    callbackScope: this
+  });
+
+  // --- SAUT
+  this.input.on('pointerdown', jump);
+  this.input.keyboard.on('keydown-SPACE', jump);
+
+  function jump() {
+    if (gameOver) return;
+    if (player.body.blocked.down) {
+      player.setVelocityY(-520);
+    }
+  }
+}
+
+function spawnObstacle() {
+  if (gameOver) return;
+
+  const obs = obstacles.create(GAME_WIDTH + 40, GROUND_Y, 'obstacle');
+  obs.setOrigin(0.5, 1);
+  obs.setScale(0.15);
+  obs.body.setSize(obs.width, obs.height);
+  obs.body.setOffset(0, 0);
+  obs.setVelocityX(-baseSpeed);
+  obs.body.allowGravity = false;
+  obs.setImmovable(true);
+}
+
+function hit() {
+  gameOver = true;
+  player.setTint(0xff0000);
+  spawnTimer.remove();
+
+  if (score > bestScore) bestScore = score;
+  bestText.setText('Best: ' + bestScore);
+
+  const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 30,
+    'GAME OVER', { font: '28px Arial', fill: '#000', align: 'center' }).setOrigin(0.5);
+  const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20,
+    'CLIQUE POUR REJOUER', { font: '20px Arial', fill: '#000', align: 'center' }).setOrigin(0.5);
+
+  this.input.once('pointerdown', () => {
+    this.scene.restart();
+    score = 0;
+    gameOver = false;
+    baseSpeed = 220;   // reset vitesse
+    bgSpeed = 3;
+    scoreTimer = 0;
+  });
+}
+
+function update(time, delta) {
+  if (!gameOver) {
+
+    // ---- incrémenter score toutes les 2 secondes
+    scoreTimer += delta;
+    if (scoreTimer >= 2000) {  // 2000 ms = 2 sec
+      score++;
+      scoreText.setText('Score: ' + score);
+      scoreTimer = 0;
+
+      // ---- augmenter progressivement la vitesse
+      baseSpeed += 5;  // obstacles plus rapides
+      bgSpeed += 0.05; // background plus rapide
+    }
+
+    // ---- défiler le background
+    bg.tilePositionX += bgSpeed;
+  }
+
+  obstacles.getChildren().forEach(o => {
+    o.setVelocityX(-baseSpeed); // appliquer la vitesse progressive
+    if (o.x < -50) o.destroy();
+  });
+}
